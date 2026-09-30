@@ -1,0 +1,17 @@
+# Salesforce
+.sf/
+.sfdx/
+.localdevserver/
+deploy-options.json
+# Node
+node_modules/
+coverage/
+npm-debug.log*
+# Local secrets – never commit
+.env
+*.key
+server.key
+# OS / editor
+.DS_Store
+.vscode/settings.json
+.idea/
