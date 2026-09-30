@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Formatting (Prettier + Apex parser)
+        run: npm run lint:format
+      - name: Mock API contract tests
+        run: npm run test:mock
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  apex-tests:
+    # Runs only when the repository owner has configured a Dev Hub.
+    # Required secrets: SF_DEVHUB_USERNAME, SF_JWT_CLIENT_ID, SF_JWT_KEY (base64 server.key)
+    if: ${{ vars.RUN_ORG_TESTS == 'true' }}
+    needs: static-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global @salesforce/cli
+      - name: Authenticate Dev Hub (JWT)
+        run: |
+          echo "${{ secrets.SF_JWT_KEY }}" | base64 --decode > server.key
+          sf org login jwt --username "${{ secrets.SF_DEVHUB_USERNAME }}" --jwt-key-file server.key \
+            --client-id "${{ secrets.SF_JWT_CLIENT_ID }}" --set-default-dev-hub --alias devhub
+          rm server.key
+      - name: Create scratch org
+        run: sf org create scratch --definition-file config/project-scratch-def.json --alias ci --set-default --duration-days 1 --wait 10
+      - name: Deploy source
+        run: sf project deploy start --wait 20
+      - name: Run Apex tests
+        run: sf apex run test --test-level RunLocalTests --code-coverage --result-format human --wait 20
+      - name: Delete scratch org
+        if: always()
+        run: sf org delete scratch --no-prompt --target-org ci
